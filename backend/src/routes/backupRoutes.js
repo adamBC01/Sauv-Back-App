@@ -35,4 +35,6 @@ router.get("/logs", authenticateToken, backupController.getBackupLogsWithUser);
 // ✅ Delete a backup
 router.delete("/:id", authenticateToken, backupController.deleteBackup);
 
+router.post('/force-run', authenticateToken, backupController.forceRunScheduledBackup);
+
 module.exports = router;
