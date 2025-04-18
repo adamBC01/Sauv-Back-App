@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
-import "./AdminPage.css";
 
 // Layout Components
 import AppNav from "../components/layout/AppNav";
@@ -15,6 +14,7 @@ import InviteGenerator from "../components/users/InviteGenerator";
 import BackupForm from "../components/backups/BackupForm";
 import BackupList from "../components/backups/BackupList";
 import BackupFilters from "../components/backups/BackupFilters";
+import BackupItem from "../components/backups/BackupItem";
 
 const AdminPage = () => {
   const [users, setUsers] = useState([]);
@@ -32,6 +32,10 @@ const AdminPage = () => {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [selectedFolders, setSelectedFolders] = useState([]);
   const [backupSource, setBackupSource] = useState("all");
+
+  // New state variables for paths
+  const [sourcePath, setSourcePath] = useState("");
+  const [destinationPath, setDestinationPath] = useState("");
 
   // Filter states
   const [statusFilter, setStatusFilter] = useState("all");
@@ -118,13 +122,30 @@ const AdminPage = () => {
   };
 
   const handleFileSelection = (e) => {
-    const files = Array.from(e.target.files);
-    setSelectedFiles(files);
+    // Check if e exists and has files before trying to access them
+    if (e && e.target && e.target.files) {
+      const files = Array.from(e.target.files);
+      setSelectedFiles(files);
+    } else if (Array.isArray(e)) {
+      // If e is already an array (as might be passed from the component)
+      setSelectedFiles(e);
+    } else {
+      console.error("Invalid file selection input", e);
+      setSelectedFiles([]);
+    }
   };
 
   const handleFolderSelection = (e) => {
-    const folders = Array.from(e.target.files);
-    setSelectedFolders(folders);
+    // Similar check for folder selection
+    if (e && e.target && e.target.files) {
+      const folders = Array.from(e.target.files);
+      setSelectedFolders(folders);
+    } else if (Array.isArray(e)) {
+      setSelectedFolders(e);
+    } else {
+      console.error("Invalid folder selection input", e);
+      setSelectedFolders([]);
+    }
   };
 
   const clearSelections = () => {
@@ -134,7 +155,7 @@ const AdminPage = () => {
 
   const handleCreateBackup = async () => {
     if (!selectedUser) {
-      alert("Please select a user.");
+      alert("Please select a user first.");
       return;
     }
 
@@ -166,7 +187,8 @@ const AdminPage = () => {
         {
           userId: selectedUser,
           backupType,
-          destination,
+          source: sourcePath || "C:\\Users\\Default\\Documents", // Default source if not provided
+          destination: destinationPath || "C:\\Users\\Default\\Backups", // Default destination if not provided
           schedule: scheduleType,
           scheduledTime,
           backupSource: backupType === "complete" ? "all" : "selected", // Set based on backup type
@@ -186,16 +208,35 @@ const AdminPage = () => {
     }
   };
 
-  const restoreBackup = async (backupId) => {
+  const restoreBackup = async (
+    backupId,
+    restoreDestination = "",
+    deleteAfterRestore = false
+  ) => {
     try {
       const token = localStorage.getItem("token");
       await axios.post(
         "http://localhost:5000/api/backups/restore",
-        { backupId },
+        {
+          backupId,
+          restoreDestination,
+          deleteAfterRestore,
+        },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       alert("Backup restored successfully!");
-      fetchBackups();
+
+      if (deleteAfterRestore) {
+        // If backup is deleted after restore, remove it from the list
+        const updatedBackups = backups.filter(
+          (backup) => backup.id !== backupId
+        );
+        setBackups(updatedBackups);
+        applyFilters(updatedBackups);
+      } else {
+        // Otherwise just refresh the backups
+        fetchBackups();
+      }
     } catch (error) {
       alert("Failed to restore backup.");
       console.error("Error restoring backup:", error);
@@ -234,6 +275,7 @@ const AdminPage = () => {
         {/* Backup Creation Section */}
         <Card title="Backup Creation">
           <BackupForm
+            isAdmin={true}
             users={users}
             selectedUser={selectedUser}
             setSelectedUser={setSelectedUser}
@@ -257,6 +299,10 @@ const AdminPage = () => {
             handleFolderSelection={handleFolderSelection}
             clearSelections={clearSelections}
             handleCreateBackup={handleCreateBackup}
+            sourcePath={sourcePath}
+            setSourcePath={setSourcePath}
+            destinationPath={destinationPath}
+            setDestinationPath={setDestinationPath}
           />
         </Card>
 
@@ -281,10 +327,27 @@ const AdminPage = () => {
         <Card title="Backup History">
           <BackupList
             backups={filteredBackups}
-            onRestore={restoreBackup}
+            onRestore={(backupId, restoreDestination, deleteAfterRestore) =>
+              restoreBackup(backupId, restoreDestination, deleteAfterRestore)
+            }
             onDelete={deleteBackup}
             users={users} // Pass the users array to display emails
-          />
+          >
+            {filteredBackups.map((backup) => (
+              <BackupItem
+                key={backup.id}
+                backup={backup}
+                onDelete={() => deleteBackup(backup.id)}
+                onRestore={(backupId, restoreDestination, deleteAfterRestore) =>
+                  restoreBackup(
+                    backupId,
+                    restoreDestination,
+                    deleteAfterRestore
+                  )
+                }
+              />
+            ))}
+          </BackupList>
         </Card>
       </div>
     </div>

@@ -62,7 +62,10 @@ export const fetchBackups = async () => {
 
     return response.data.backups || []; // Ensure it always returns an array
   } catch (error) {
-    console.error("❌ Error fetching backups:", error.response?.data || error.message);
+    console.error(
+      "❌ Error fetching backups:",
+      error.response?.data || error.message
+    );
     return []; // Return an empty array to avoid crashing
   }
 };
@@ -77,34 +80,62 @@ export const createBackup = async (backupData) => {
       return null;
     }
 
-    const response = await axios.post(`${API_BASE_URL}/backups/create`, backupData, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-    });
+    // Log the backup data being sent for debugging
+    console.log("📦 Sending backup data to API:", backupData);
+
+    const response = await axios.post(
+      `${API_BASE_URL}/backups/create`,
+      backupData,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    // Log the response for debugging
+    console.log("✅ Backup creation response:", response.data);
 
     return response.data;
   } catch (error) {
-    console.error("❌ Error creating backup:", error.response?.data || error.message);
-    return null;
+    console.error(
+      "❌ Error creating backup:",
+      error.response?.data || error.message
+    );
+
+    // Provide more detailed error information
+    if (error.response) {
+      console.error("📄 Response data:", error.response.data);
+      console.error("🔢 Response status:", error.response.status);
+    }
+
+    throw error; // Re-throw the error so the caller can handle it
   }
 };
 
 // ✅ Restore a backup
-export const restoreBackup = async (backupId) => {
+export const restoreBackup = async (
+  backupId,
+  restoreDestination = "",
+  deleteAfterRestore = false
+) => {
   try {
     const token = localStorage.getItem("token");
 
     // Corrected endpoint - using /restore endpoint with backupId in request body
     const response = await axios.post(
       `${API_BASE_URL}/backups/restore`,
-      { backupId },
+      {
+        backupId,
+        restoreDestination,
+        deleteAfterRestore,
+      },
       {
         headers: {
           Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json"
-        }
+          "Content-Type": "application/json",
+        },
       }
     );
 

@@ -59,9 +59,12 @@ const runEndToEndTests = async () => {
     args: ['--window-size=1280,800']
   });
 
+  // Declare page here, outside the try block
+  let page;
+
   try {
     // Create a new page
-    const page = await browser.newPage();
+    page = await browser.newPage();
 
     // 1. Test login flow
     console.log('🧪 Testing login flow...');
@@ -259,11 +262,6 @@ const runEndToEndTests = async () => {
 
   } catch (error) {
     console.error('❌ End-to-end test failed:', error);
-    // Take screenshot of failure
-    if (page) {
-      await page.screenshot({ path: 'error-screenshot.png' });
-      console.log('📸 Error screenshot saved to error-screenshot.png');
-    }
   } finally {
     // Close browser
     await browser.close();

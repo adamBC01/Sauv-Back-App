@@ -67,6 +67,13 @@ const performBackup = async (source, destination, backupType, options = {}) => {
         recursive: true,
       });
       return true;
+    } else if (sourceStat.isFile()) {
+      // Handle single file backup
+      await fs.copy(source, path.join(destination, path.basename(source)), {
+        overwrite: true,
+        errorOnExist: false,
+      });
+      return true;
     } else {
       throw new Error(
         `Invalid backup type (${backupType}) for the given source`
@@ -98,7 +105,7 @@ exports.createBackup = (req, res) => {
   if (!fs.existsSync(source)) {
     return res.status(400).json({
       message: "Invalid source path",
-      error: `Source path does not exist: ${source}`
+      error: `Source path does not exist: ${source}`,
     });
   }
 
@@ -263,7 +270,7 @@ exports.updateBackupStatus = (req, res) => {
 
 // ✅ Restore a backup
 exports.restoreBackup = (req, res) => {
-  const { backupId, restoreDestination } = req.body;
+  const { backupId, restoreDestination, deleteAfterRestore = false } = req.body;
   const userId = req.user.userId;
 
   if (!backupId) {
@@ -303,9 +310,33 @@ exports.restoreBackup = (req, res) => {
           "INSERT INTO backup_logs (user_id, backup_id, action) VALUES (?, ?, 'restored')",
           [userId, backupId]
         );
+
+        // If deleteAfterRestore is true, delete the backup
+        if (deleteAfterRestore) {
+          // Delete the backup files
+          await fs.remove(backupDir);
+
+          // Delete the backup record from the database
+          db.query(
+            "DELETE FROM backups WHERE id = ?",
+            [backupId],
+            (deleteErr) => {
+              if (deleteErr) {
+                console.error(
+                  "❌ Error deleting backup after restore:",
+                  deleteErr
+                );
+              } else {
+                console.log(`✅ Backup ${backupId} deleted after restore`);
+              }
+            }
+          );
+        }
+
         res.status(200).json({
           message: "Backup restored successfully",
           restoredTo: targetDir,
+          deleted: deleteAfterRestore,
         });
       } catch (restoreError) {
         console.error("❌ Restore operation failed:", restoreError);
@@ -542,99 +573,107 @@ exports.forceRunScheduledBackup = (req, res) => {
   }
 
   // Get the backup details
-  db.query("SELECT * FROM backups WHERE id = ?", [backupId], async (err, result) => {
-    if (err) {
-      return res.status(500).json({ message: "Error retrieving backup", error: err });
-    }
+  db.query(
+    "SELECT * FROM backups WHERE id = ?",
+    [backupId],
+    async (err, result) => {
+      if (err) {
+        return res
+          .status(500)
+          .json({ message: "Error retrieving backup", error: err });
+      }
 
-    if (result.length === 0) {
-      return res.status(404).json({ message: "Backup not found" });
-    }
+      if (result.length === 0) {
+        return res.status(404).json({ message: "Backup not found" });
+      }
 
-    const backup = result[0];
+      const backup = result[0];
 
-    // Verify it's a scheduled backup
-    if (backup.schedule === 'manual') {
-      return res.status(400).json({ message: "Cannot force run a manual backup" });
-    }
+      // Verify it's a scheduled backup
+      if (backup.schedule === "manual") {
+        return res
+          .status(400)
+          .json({ message: "Cannot force run a manual backup" });
+      }
 
-    // Create the backup directory
-    const backupDir = createBackupDirectory(backup.destination, backupId);
+      // Create the backup directory
+      const backupDir = createBackupDirectory(backup.destination, backupId);
 
-    try {
-      // Perform the actual backup
-      await performBackup(backup.source, backupDir, backup.backup_type);
+      try {
+        // Perform the actual backup
+        await performBackup(backup.source, backupDir, backup.backup_type);
 
-      // Save backup metadata
-      const metadata = {
-        id: backupId,
-        type: backup.backup_type,
-        source: backup.source,
-        created: new Date().toISOString(),
-        userId: backup.user_id,
-        schedule: backup.schedule,
-        forceRun: true
-      };
+        // Save backup metadata
+        const metadata = {
+          id: backupId,
+          type: backup.backup_type,
+          source: backup.source,
+          created: new Date().toISOString(),
+          userId: backup.user_id,
+          schedule: backup.schedule,
+          forceRun: true,
+        };
 
-      fs.writeFileSync(
-        path.join(backupDir, "backup-metadata.json"),
-        JSON.stringify(metadata, null, 2)
-      );
+        fs.writeFileSync(
+          path.join(backupDir, "backup-metadata.json"),
+          JSON.stringify(metadata, null, 2)
+        );
 
-      // Update backup status to completed
-      db.query(
-        "UPDATE backups SET status = 'completed' WHERE id = ?",
-        [backupId],
-        (updateErr) => {
-          if (updateErr) {
-            console.error("❌ Error updating backup status:", updateErr);
-          }
-
-          // Log the force run action
-          db.query(
-            "INSERT INTO backup_logs (user_id, backup_id, action) VALUES (?, ?, 'force-run')",
-            [backup.user_id, backupId]
-          );
-
-          console.log(`✅ Forced backup ${backupId} completed.`);
-
-          // Send email notification
-          db.query(
-            "SELECT email FROM users WHERE id = ?",
-            [backup.user_id],
-            (emailErr, emailResult) => {
-              if (!emailErr && emailResult.length > 0) {
-                const email = emailResult[0].email;
-                sendEmail(
-                  email,
-                  "Forced Backup Completed",
-                  `Your scheduled backup (ID: ${backupId}) has been force-run and completed successfully to ${backupDir}.`
-                );
-              }
+        // Update backup status to completed
+        db.query(
+          "UPDATE backups SET status = 'completed' WHERE id = ?",
+          [backupId],
+          (updateErr) => {
+            if (updateErr) {
+              console.error("❌ Error updating backup status:", updateErr);
             }
-          );
 
-          return res.status(200).json({
-            message: "Forced backup completed successfully",
-            backupId,
-            backupDir
-          });
-        }
-      );
-    } catch (backupError) {
-      console.error("❌ Forced backup operation failed:", backupError);
+            // Log the force run action
+            db.query(
+              "INSERT INTO backup_logs (user_id, backup_id, action) VALUES (?, ?, 'force-run')",
+              [backup.user_id, backupId]
+            );
 
-      // Update status to failed
-      db.query(
-        "UPDATE backups SET status = 'failed', error_message = ? WHERE id = ?",
-        [backupError.message, backupId]
-      );
+            console.log(`✅ Forced backup ${backupId} completed.`);
 
-      return res.status(500).json({
-        message: "Forced backup operation failed",
-        error: backupError.message,
-        backupId
-      });
+            // Send email notification
+            db.query(
+              "SELECT email FROM users WHERE id = ?",
+              [backup.user_id],
+              (emailErr, emailResult) => {
+                if (!emailErr && emailResult.length > 0) {
+                  const email = emailResult[0].email;
+                  sendEmail(
+                    email,
+                    "Forced Backup Completed",
+                    `Your scheduled backup (ID: ${backupId}) has been force-run and completed successfully to ${backupDir}.`
+                  );
+                }
+              }
+            );
+
+            return res.status(200).json({
+              message: "Forced backup completed successfully",
+              backupId,
+              backupDir,
+            });
+          }
+        );
+      } catch (backupError) {
+        console.error("❌ Forced backup operation failed:", backupError);
+
+        // Update status to failed
+        db.query(
+          "UPDATE backups SET status = 'failed', error_message = ? WHERE id = ?",
+          [backupError.message, backupId]
+        );
+
+        return res.status(500).json({
+          message: "Forced backup operation failed",
+          error: backupError.message,
+          backupId,
+        });
+      }
     }
-  });
+  );
 };

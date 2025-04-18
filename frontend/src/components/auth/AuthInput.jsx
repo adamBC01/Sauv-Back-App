@@ -1,6 +1,6 @@
 import React from "react";
 
-const AuthInput = ({ type, placeholder, value, onChange, required }) => {
+const AuthInput = ({ type, placeholder, value, onChange, required, ...props }) => {
   return (
     <input
       type={type}
@@ -9,6 +9,7 @@ const AuthInput = ({ type, placeholder, value, onChange, required }) => {
       onChange={onChange}
       required={required}
       className="form-input"
+      {...props}
     />
   );
 };

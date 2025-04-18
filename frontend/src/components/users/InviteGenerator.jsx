@@ -1,6 +1,9 @@
 import React, { useState } from "react";
 import axios from "axios";
 
+// API base URL - adjust this to match your backend URL
+const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+
 const InviteGenerator = () => {
   const [invitationLink, setInvitationLink] = useState("");
   const [linkCopied, setLinkCopied] = useState(false);
@@ -8,10 +11,11 @@ const InviteGenerator = () => {
   const generateInviteLink = async () => {
     try {
       const token = localStorage.getItem("token");
-      const response = await axios.get(
-        "http://localhost:5000/api/invite/invite",
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      // Use the correct API endpoint URL
+      const response = await axios.get(`${API_URL}/auth/invite`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      console.log("Invitation link response:", response.data);
       setInvitationLink(response.data.invitationLink);
       setLinkCopied(false);
     } catch (error) {

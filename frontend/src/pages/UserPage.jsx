@@ -11,7 +11,6 @@ import {
   restoreBackup,
   deleteBackup,
 } from "../api/backupService";
-import "./UserPage.css";
 
 const UserPage = () => {
   // State for user data and backups
@@ -29,6 +28,10 @@ const UserPage = () => {
   const [backupSource, setBackupSource] = useState("all");
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [selectedFolders, setSelectedFolders] = useState([]);
+
+  // New state variables for paths
+  const [sourcePath, setSourcePath] = useState("");
+  const [destinationPath, setDestinationPath] = useState("");
 
   // State for filters
   const [statusFilter, setStatusFilter] = useState("all");
@@ -70,20 +73,47 @@ const UserPage = () => {
       return;
     }
 
+    // Note: We can't validate file paths in the browser
+    // The backend will handle this validation
+
     const newBackup = {
       userId: userData.id,
       backupType: backupType,
-      destination: destination,
+      // Use source and destination instead of sourcePath and destinationPath
+      source: sourcePath || "C:\\Users\\Default\\Documents", // Default source if not provided
+      destination: destinationPath || "C:\\Users\\Default\\Backups", // Default destination if not provided
+      schedule: scheduleType, // Use schedule instead of scheduleType to match backend
       backupSource: backupType === "complete" ? "all" : "selected", // Set based on backup type
       filePaths:
         backupType === "partial"
-          ? selectedFiles.map((file) => file.name)
+          ? selectedFiles.map((file) => file.name || file.path || String(file))
           : [],
       folderPaths:
         backupType === "partial"
-          ? selectedFolders.map((folder) => folder.name)
+          ? selectedFolders.map(
+              (folder) => folder.name || folder.path || String(folder)
+            )
           : [],
     };
+
+    // Add scheduled time information based on schedule type
+    if (scheduleType !== "manual") {
+      newBackup.scheduledTime = {
+        time:
+          scheduleDate instanceof Date
+            ? scheduleDate.toISOString()
+            : scheduleDate,
+      };
+
+      if (scheduleType === "weekly") {
+        newBackup.scheduledTime.day = scheduleDay;
+      } else if (scheduleType === "monthly") {
+        newBackup.scheduledTime.day = scheduleMonthDay;
+      }
+    }
+
+    // Add console log to see what data is being sent
+    console.log("📦 Backup data being sent:", newBackup);
 
     try {
       const createdBackup = await createBackup(newBackup);
@@ -109,28 +139,57 @@ const UserPage = () => {
       // Reset form only if backup creation is successful
       setBackupType("complete");
       setDestination("cloud");
-      setScheduleType("Manual");
+      setScheduleType("manual"); // Making sure this matches the case used elsewhere
       setScheduleDate(new Date());
       setScheduleDay("Monday");
       setScheduleMonthDay(1);
       setBackupSource("all");
       setSelectedFiles([]);
       setSelectedFolders([]);
+      setSourcePath("");
+      setDestinationPath("");
     } catch (error) {
       console.error("❌ Error during backup creation:", error);
-      alert("An unexpected error occurred while creating the backup.");
+
+      // More detailed error information
+      if (error.response) {
+        console.error("📄 Response data:", error.response.data);
+        console.error("🔢 Response status:", error.response.status);
+        alert(
+          `Failed to create backup: ${
+            error.response.data?.message || "Server error"
+          }`
+        );
+      } else {
+        alert("An unexpected error occurred while creating the backup.");
+      }
     }
   };
 
   // Handle backup restoration
-  const handleRestoreBackup = async (backupId) => {
+  const handleRestoreBackup = async (
+    backupId,
+    restoreDestination = "",
+    deleteAfterRestore = false
+  ) => {
     try {
-      await restoreBackup(backupId);
-      const updatedBackups = backups.map((backup) =>
-        backup.id === backupId ? { ...backup, status: "restoring" } : backup
-      );
-      setBackups(updatedBackups);
-      applyFilters(updatedBackups);
+      await restoreBackup(backupId, restoreDestination, deleteAfterRestore);
+
+      if (deleteAfterRestore) {
+        // If backup is deleted after restore, remove it from the list
+        const updatedBackups = backups.filter(
+          (backup) => backup.id !== backupId
+        );
+        setBackups(updatedBackups);
+        applyFilters(updatedBackups);
+      } else {
+        // Otherwise just update the status
+        const updatedBackups = backups.map((backup) =>
+          backup.id === backupId ? { ...backup, status: "restoring" } : backup
+        );
+        setBackups(updatedBackups);
+        applyFilters(updatedBackups);
+      }
     } catch (error) {
       console.error("❌ Error restoring backup:", error);
       alert("Failed to restore backup");
@@ -150,14 +209,30 @@ const UserPage = () => {
     }
   };
 
-  // Handle file selection
-  const handleFileSelection = (files) => {
-    setSelectedFiles(files);
+  const handleFileSelection = (e) => {
+    // Handle both cases - event object or array of files
+    if (e && e.target && e.target.files) {
+      const files = Array.from(e.target.files);
+      setSelectedFiles(files);
+    } else if (Array.isArray(e)) {
+      setSelectedFiles(e);
+    } else {
+      console.error("Invalid file selection input", e);
+      setSelectedFiles([]);
+    }
   };
 
-  // Handle folder selection
-  const handleFolderSelection = (folders) => {
-    setSelectedFolders(folders);
+  const handleFolderSelection = (e) => {
+    // Handle both cases - event object or array of folders
+    if (e && e.target && e.target.files) {
+      const folders = Array.from(e.target.files);
+      setSelectedFolders(folders);
+    } else if (Array.isArray(e)) {
+      setSelectedFolders(e);
+    } else {
+      console.error("Invalid folder selection input", e);
+      setSelectedFolders([]);
+    }
   };
 
   // Clear selections
@@ -227,6 +302,10 @@ const UserPage = () => {
             handleFolderSelection={handleFolderSelection}
             clearSelections={clearSelections}
             handleCreateBackup={handleCreateBackup}
+            sourcePath={sourcePath}
+            setSourcePath={setSourcePath}
+            destinationPath={destinationPath}
+            setDestinationPath={setDestinationPath}
           />
         </Card>
 
